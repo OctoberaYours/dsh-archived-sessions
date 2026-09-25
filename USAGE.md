@@ -1,6 +1,6 @@
-# dsh-archived-sessions 使用手册（v0.1.5）
+# dsh-archived-sessions 使用手册（v0.2.0）
 
-> 安装方法见 README（方式一 tarball / 方式二让智能体安装）。本文只讲**怎么用**。
+> 安装方法见 README（方式一 tarball / 方式二让智能体安装 / 方式三本地 link 开发）。本文只讲**怎么用**。
 
 ## 中文
 
@@ -58,7 +58,7 @@
 
 ## English
 
-> For installation, see README (Option 1 tarball / Option 2 let an agent install it). This document covers **usage only**.
+> For installation, see README (Option 1 tarball / Option 2 let an agent install it / Option 3 local link for development). This document covers **usage only**.
 
 ### Session list
 

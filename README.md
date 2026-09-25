@@ -6,6 +6,11 @@
 
 </div>
 
+> **这是一个独立维护的 fork。**
+> 上游 [Zephyr-vibe/dsh-archived-sessions](https://github.com/Zephyr-vibe/dsh-archived-sessions) 自 2026-08-21 后未再更新，其 `v0.1.5` 面向 DSH 核心 `0.1.0-rc.8`。
+> 本仓库（[OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)）从 `0.2.0` 起独立演进，目标是**跟随 DSH 核心当前版本**——目前适配 **DSH `0.1.7-rc.2`**。
+> 与上游的差异集中在核心 API 迁移：`sessionPersistence` 契约重构、`decodeStorageRecord` 导出移除、live Session 事件读取方式变更、cordis `inject` 访问门禁。详见[更新日志](#更新日志)。
+
 ## 中文
 
 一个 DSH Web 插件：在「设置」中提供**会话管理**，统一管理本机上的所有对话。
@@ -53,13 +58,13 @@
 #### 方式一：直接 tarball 安装
 
 ```sh
-dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archived-sessions/tar.gz/refs/heads/main
+dsh plugin --profile web add https://codeload.github.com/OctoberaYours/dsh-archived-sessions/tar.gz/refs/heads/main
 ```
 
 如果 pnpm 拦截构建脚本，在命令末尾加 `--ignore-scripts`：
 
 ```sh
-dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archived-sessions/tar.gz/refs/heads/main --ignore-scripts
+dsh plugin --profile web add https://codeload.github.com/OctoberaYours/dsh-archived-sessions/tar.gz/refs/heads/main --ignore-scripts
 ```
 
 #### 方式二：让 agent 安装
@@ -67,21 +72,69 @@ dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archive
 告诉你的 DSH 智能体：
 
 ```text
-帮我把这个项目安装为插件：https://github.com/Zephyr-vibe/dsh-archived-sessions
+帮我把这个项目安装为插件：https://github.com/OctoberaYours/dsh-archived-sessions
 ```
 
 agent 会下载项目、放入 profile 的 `node_modules` 并注册到 `dsh.profile.bundles`。
 
-安装后重启 web 端，即可在「设置」中看到「会话管理」入口。
+#### 方式三：本地开发（link 安装）
+
+改代码即生效的场景（本仓库开发时的实际用法）：
+
+```sh
+# 1) 克隆到任意位置
+git clone https://github.com/OctoberaYours/dsh-archived-sessions.git C:/Users/<你>/Code/dsh-archived-sessions
+
+# 2) 让 profile 依赖指向本地目录（用 junction，Windows）
+mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-archived-sessions" "C:\Users\<你>\Code\dsh-archived-sessions"
+```
+
+然后在 profile 的 `package.json` 里**两处都要写**：
+
+```jsonc
+{
+  "dependencies": { "dsh-archived-sessions": "link:C:/Users/<你>/Code/dsh-archived-sessions" },
+  "dsh": { "profile": { "bundles": [ /* … */ "dsh-archived-sessions" ] } }
+}
+```
+
+> ⚠️ `dependencies` 与 `dsh.profile.bundles` **必须同时存在**——只写 `dependencies`
+> 时插件可能被静默启停（DSH 会从 `dependencies` 重新推导 bundles），只写 bundles
+> 则解析不到入口。
+
+安装后重启 DSH，即可在「设置」中看到「会话管理」入口。
 
 ### 兼容性
 
+- **DSH 核心 `0.1.7-rc.2`**（`peerDependencies` 声明为 `^0.1.7-rc.2`，由 DSH 的插件兼容门禁校验）
 - **零配置**：会话目录按官方 DSH 布局（`$DSH_HOME/sessions/<project-key>/<session-id>/`）自动识别，无需核心补丁
 - **归档 / 恢复**：基于官方 `archiveSession` 相同的 `registry` 状态原语实现
 - **删除不级联**：只删除所选会话，子代理、分叉与文件均保留；运行中的会话拒绝删除（409）
-- **API 仅信任本机请求**（127.0.0.1 / localhost / ::1）；仅使用官方公开 API（`workspaceRegistry`、`sessionPersistence`）
+- **API 仅信任本机请求**（127.0.0.1 / localhost / ::1）；仅使用官方公开 API
+
+> **关于 rc.2 的破坏性变更**：本版本跟随 0.1.7-rc.2 重构了四处核心交互——
+> `sessionPersistence` 的 `inspect/readRaw/remove/artifactInfo` → `open/stat/list`；
+> `@deepseek-ai/dsh-session` 移除 `decodeStorageRecord` 导出；
+> live Session 事件改由 `snapshotEvents()` 读取（不再有公开 `events`）；
+> cordis 4 的 `inject` 变为访问门禁（未声明即抛错）。
+> 因此 **0.2.0 不兼容 `0.1.7-rc.1` 及更早的核心**——门禁会直接拒绝加载。
 
 ### 更新日志
+
+#### 0.2.0
+
+> **本版本起本仓库独立维护**（详见页首说明），目标是跟随 DSH 核心当前版本。
+> 上游 `v0.1.5` 面向 `0.1.0-rc.8`；`0.1.7-rc.2` 对核心 API 做了多处破坏性重构，
+> 且绝大多数以**静默失效**的方式呈现（不报错，只是功能不再工作），
+> 因此这一版的主线是逐项定位并修复这些静默失效。
+
+- **适配：`sessionPersistence` 接口整体重构（rc.2）**——rc.2 移除了 `inspect` / `readRaw` / `remove` / `artifactInfo`，改为 `open(id,"read")` + `handle.read()` / `stat(id)` / `list()`（且 `list()` 的返回形状从 `[header, …]` 变为 `[{header, revision, sizeBytes}, …]`）。旧代码对这些调用都有 `typeof … === "function"` 守卫，失配后**不报错、只是永远拿不到数据**。真机症状：删除会话报「找不到该会话的记录（会话不存在）」（`findSessionMeta` 读 `meta.id`，而新形状里 id 在 `meta.header.id`，比对恒假）；详情面板报 `persistence.inspect is not a function`。现引入归一化层 `listSessionHeaders()` / `readStoredSession()` / `sessionNotFoundError()`，同时兼容两种形状，并确保 rc.2 路径上 `handle.close()`（否则泄漏 in-process claim）
+- **适配：`@deepseek-ai/dsh-session` 移除 `decodeStorageRecord` 导出（rc.2）**——该包 `exports` 白名单不含 `chunk-rows`，函数本体仍在 `lib/types/chunk-rows.js` 但无法导入；具名导入不存在的绑定会抛链接期 `SyntaxError`，被 loader 捕获后报 `1 entry did not activate … failed to import`，host 半边整个不激活。**它不是死代码**：本机会话日志 210730 行中分块存储行占 57120 行（27%），删掉会让这些事件整批丢失。现按官方实现逐字节等价内联（已验证：全部真实日志逐行比对，0 处不一致、0 处单边抛错）
+- **适配：live Session 不再有 `events` 属性（rc.2）**——事件日志收为私有 `log`，公开读取须走 `snapshotEvents()`。旧写法 `[...live.events]` 必抛 `TypeError: live.events is not iterable`；真机表现在设置页「会话管理 → 归档会话」**展开任意一行**即报错。现优先 `snapshotEvents()`、回退 `events`，两者都不可用时返回空数组而非抛错
+- **适配：cordis 4 的 `inject` 是访问门禁**——未声明的服务用 `ctx.<name>` 读取会直接抛 `Error: cannot get property "sessions" without inject`（`ctx.get("<name>")` 才是无门禁的宽容读取）。客户端 `inject` 先前漏声明 `sessions` / `workspaces`，而 `refreshSessionLists()` 把异常静默吞在 `try{}catch{}` 里 ⇒ 删除后客户端**从不刷新**会话列表；真机表现：删掉的会话仍留在侧边栏，因已从工作区摘除而掉进「未分组」，点开报 `session "…" not found`。现已声明 `["slots","locale","sessions","workspaces"]`，并显式重拉会话列表基线（`sessions.refresh()` → `manager.refreshList()`，其 `mergeOrderedBaseline` 对"不在基线里的身份"是移除语义）
+- **修复：删除的假成功**——rc.2 移除 `persistence.remove` 后，`removeLog()` 里的守卫会静默跳过，变成**报告删除成功但文件还在**。现在目录不可定位时明确返回 404，并补一层基于 `sessionDirFor()` 的布局兜底（已与官方 `projectDir` 的 `projectKey(cwd)` + `encodeSegment(id)` 逐字段核对一致）
+- **修复：`postinstall` 之外的仓库卫生**——`package.json` 的 `author` / `repository` / `bugs` / `homepage` 指向本 fork（上游作者列入 `contributors`，MIT 要求保留）；`dsh.client.inject` 去掉 rc.2 中并不存在的 `@deepseek-ai/dsh-client-runtime`，补上真正被 `require` 的 `@deepseek-ai/dsh-client-ui-primitives`
+- `peerDependencies` 全部对齐 `^0.1.7-rc.2`，并逐项核对无幽灵包
 
 #### 0.1.5
 
@@ -141,11 +194,16 @@ agent 会下载项目、放入 profile 的 `node_modules` 并注册到 `dsh.prof
 
 ### 许可证
 
-MIT — © 2026 Zephyr-vibe
+MIT — © 2026 Zephyr-vibe（上游）· © 2026 OctoberaYours（本 fork）
 
 ---
 
 ## English
+
+> **This is an independently maintained fork.**
+> The upstream [Zephyr-vibe/dsh-archived-sessions](https://github.com/Zephyr-vibe/dsh-archived-sessions) has not been updated since 2026-08-21; its `v0.1.5` targets DSH core `0.1.0-rc.8`.
+> This repository ([OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)) evolves independently from `0.2.0`, aiming to **track the current DSH core** — currently **DSH `0.1.7-rc.2`**.
+> The divergence from upstream is concentrated in core-API migration: the `sessionPersistence` contract rewrite, removal of the `decodeStorageRecord` export, the changed live-Session event accessor, and the cordis `inject` access gate. See the [changelog](#changelog).
 
 A DSH web plugin: a **Session Manager** in Settings — manage every conversation on this machine in one place.
 
@@ -192,13 +250,13 @@ A DSH web plugin: a **Session Manager** in Settings — manage every conversatio
 #### Option 1: Direct tarball install
 
 ```sh
-dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archived-sessions/tar.gz/refs/heads/main
+dsh plugin --profile web add https://codeload.github.com/OctoberaYours/dsh-archived-sessions/tar.gz/refs/heads/main
 ```
 
 If pnpm blocks build scripts, append `--ignore-scripts`:
 
 ```sh
-dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archived-sessions/tar.gz/refs/heads/main --ignore-scripts
+dsh plugin --profile web add https://codeload.github.com/OctoberaYours/dsh-archived-sessions/tar.gz/refs/heads/main --ignore-scripts
 ```
 
 #### Option 2: Let an agent install it
@@ -206,21 +264,68 @@ dsh plugin --profile web add https://codeload.github.com/Zephyr-vibe/dsh-archive
 Tell your DSH agent:
 
 ```text
-帮我把这个项目安装为插件：https://github.com/Zephyr-vibe/dsh-archived-sessions
+帮我把这个项目安装为插件：https://github.com/OctoberaYours/dsh-archived-sessions
 ```
 
 The agent downloads the repo, places it into the profile's `node_modules`, and registers it in `dsh.profile.bundles`.
 
-After installing, restart the web app — the Session Manager appears in Settings automatically.
+#### Option 3: Local development (link install)
+
+For the edit-and-reload workflow (how this repo is developed):
+
+```sh
+# 1) Clone anywhere
+git clone https://github.com/OctoberaYours/dsh-archived-sessions.git C:/Users/<you>/Code/dsh-archived-sessions
+
+# 2) Point the profile dependency at the local checkout (junction on Windows)
+mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-archived-sessions" "C:\Users\<you>\Code\dsh-archived-sessions"
+```
+
+Then write **both** places in the profile's `package.json`:
+
+```jsonc
+{
+  "dependencies": { "dsh-archived-sessions": "link:C:/Users/<you>/Code/dsh-archived-sessions" },
+  "dsh": { "profile": { "bundles": [ /* … */ "dsh-archived-sessions" ] } }
+}
+```
+
+> ⚠️ `dependencies` and `dsh.profile.bundles` **must both be present** — with only
+> `dependencies` the plugin may be silently enabled/disabled (DSH re-derives bundles
+> from `dependencies`), and with only bundles its entry point cannot be resolved.
+
+After installing, restart DSH — the Session Manager appears in Settings automatically.
 
 ### Compatibility
 
+- **DSH core `0.1.7-rc.2`** (`peerDependencies` declare `^0.1.7-rc.2`, enforced by DSH's plugin compatibility gate)
 - **Zero config**: session directories are auto-detected from the official DSH layout (`$DSH_HOME/sessions/<project-key>/<session-id>/`) — no core patches
 - **Archive / unarchive**: built on the same `registry` state primitives as the official `archiveSession`
 - **Non-cascading delete**: only the selected session is removed; subagents, forks and files are kept; running sessions are rejected (409)
-- **Loopback-only API** (127.0.0.1 / localhost / ::1); official public APIs only (`workspaceRegistry`, `sessionPersistence`)
+- **Loopback-only API** (127.0.0.1 / localhost / ::1); official public APIs only
+
+> **On the rc.2 breaking changes**: this release tracks four core interactions rewritten in 0.1.7-rc.2 —
+> `sessionPersistence`'s `inspect/readRaw/remove/artifactInfo` → `open/stat/list`;
+> removal of the `decodeStorageRecord` export from `@deepseek-ai/dsh-session`;
+> live-Session events now read via `snapshotEvents()` (no public `events`);
+> and cordis 4's `inject` becoming an access gate (undeclared access throws).
+> Consequently **0.2.0 is incompatible with core `0.1.7-rc.1` and earlier** — the gate rejects them outright.
 
 ### Changelog
+
+#### 0.2.0
+
+> **This repository is independently maintained from this release onward** (see the note at the top); the goal is to track the current DSH core.
+> Upstream `v0.1.5` targets `0.1.0-rc.8`; `0.1.7-rc.2` rewrote several core APIs, and most of the breakage surfaces as **silent failure** (no error — the feature simply stops working),
+> so this release is primarily about finding and fixing those silent failures.
+
+- **Adaptation: `sessionPersistence` contract rewrite (rc.2)** — rc.2 removed `inspect` / `readRaw` / `remove` / `artifactInfo` in favor of `open(id,"read")` + `handle.read()` / `stat(id)` / `list()` (and `list()` now returns `[{header, revision, sizeBytes}, …]` instead of `[header, …]`). The old code guarded every call with `typeof … === "function"`, so a mismatch produced **no error — just no data, ever**. Observed symptoms: deleting a session reported "session not found" (`findSessionMeta` read `meta.id`, but the new shape nests it at `meta.header.id`, so the comparison was always false); the detail panel threw `persistence.inspect is not a function`. Now a normalization layer (`listSessionHeaders()` / `readStoredSession()` / `sessionNotFoundError()`) accepts both shapes, and the rc.2 path closes its handle (otherwise the in-process claim leaks)
+- **Adaptation: `decodeStorageRecord` no longer exported (rc.2)** — the package's `exports` map omits `chunk-rows`; the function still lives in `lib/types/chunk-rows.js` but cannot be imported. A named import of a missing binding throws a link-time `SyntaxError` that the loader swallows into `1 entry did not activate … failed to import`, leaving the whole host half inactive. **It is not dead code**: of 210,730 lines in this machine's session logs, 57,120 (27%) are chunk storage rows; dropping the decode would lose those events wholesale. Now inlined byte-equivalently from the official implementation (verified: every real log compared line by line — 0 mismatches, 0 one-sided throws)
+- **Adaptation: live Session no longer exposes `events` (rc.2)** — the event log became the private `log`; public reads must go through `snapshotEvents()`. The old `[...live.events]` throws `TypeError: live.events is not iterable`; in practice, expanding **any row** in Settings → Session Manager → Archived failed. Now `snapshotEvents()` is preferred, `events` is the fallback, and an empty array is returned when neither exists rather than throwing
+- **Adaptation: cordis 4's `inject` is an access gate** — reading an undeclared service via `ctx.<name>` throws `Error: cannot get property "sessions" without inject` (`ctx.get("<name>")` is the unguarded read). The client `inject` had been missing `sessions` / `workspaces`, and `refreshSessionLists()` swallowed the exception in a `try{}catch{}`, so the client **never refreshed** its session list after a delete; in practice the deleted session stayed in the sidebar, fell into "Ungrouped" once detached from its workspace, and errored with `session "…" not found` when opened. Now declares `["slots","locale","sessions","workspaces"]` and explicitly re-pulls the baseline (`sessions.refresh()` → `manager.refreshList()`, whose `mergeOrderedBaseline` **removes** identities absent from the baseline)
+- **Fix: false-success deletes** — once rc.2 removed `persistence.remove`, the guard in `removeLog()` silently skipped, turning into **"reports success but the files remain"**. Now an unlocatable directory returns an explicit 404, backed by a layout-derived fallback using `sessionDirFor()` (verified field-by-field against the official `projectDir` = `projectKey(cwd)` + `encodeSegment(id)`)
+- **Repository hygiene** — `package.json`'s `author` / `repository` / `bugs` / `homepage` now point at this fork (upstream author credited under `contributors`, as MIT requires); `dsh.client.inject` drops `@deepseek-ai/dsh-client-runtime` (nonexistent in rc.2) and adds `@deepseek-ai/dsh-client-ui-primitives`, which the client actually `require`s
+- `peerDependencies` aligned to `^0.1.7-rc.2`, each verified to have no phantom packages
 
 #### 0.1.5
 
@@ -280,4 +385,4 @@ After installing, restart the web app — the Session Manager appears in Setting
 
 ### License
 
-MIT — © 2026 Zephyr-vibe
+MIT — © 2026 Zephyr-vibe (upstream) · © 2026 OctoberaYours (this fork)

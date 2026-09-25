@@ -1,0 +1,7 @@
+node_modules/
+.dsh-home/
+__probe.mjs
+
+# 本地备份与临时产物（不入库）
+*.bak-*
+pnpm-lock.yaml
