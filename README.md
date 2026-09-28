@@ -8,7 +8,7 @@
 
 > **这是一个独立维护的 fork。**
 > 上游 [Zephyr-vibe/dsh-archived-sessions](https://github.com/Zephyr-vibe/dsh-archived-sessions) 自 2026-08-21 后未再更新，其 `v0.1.5` 面向 DSH 核心 `0.1.0-rc.8`。
-> 本仓库（[OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)）从 `0.2.0` 起独立演进，目标是**跟随 DSH 核心当前版本**——目前适配 **DSH `0.1.7-rc.2`**。
+> 本仓库（[OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)）从 `0.2.0` 起独立演进，目标是**跟随 DSH 核心当前版本**——目前适配 **DSH `0.1.7-rc.2` 与 `0.2.0-rc.1`**。
 > 与上游的差异集中在核心 API 迁移：`sessionPersistence` 契约重构、`decodeStorageRecord` 导出移除、live Session 事件读取方式变更、cordis `inject` 访问门禁。详见[更新日志](#更新日志)。
 
 ## 中文
@@ -106,11 +106,19 @@ mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-archived-sessi
 
 ### 兼容性
 
-- **DSH 核心 `0.1.7-rc.2`**（`peerDependencies` 声明为 `^0.1.7-rc.2`，由 DSH 的插件兼容门禁校验）
+- **DSH 核心 `0.1.7-rc.2` 与 `0.2.0-rc.1`**（`peerDependencies` 声明为
+  `^0.1.7-rc.2 || ^0.2.0-rc.1`，由 DSH 的插件兼容门禁校验）
 - **零配置**：会话目录按官方 DSH 布局（`$DSH_HOME/sessions/<project-key>/<session-id>/`）自动识别，无需核心补丁
 - **归档 / 恢复**：基于官方 `archiveSession` 相同的 `registry` 状态原语实现
 - **删除不级联**：只删除所选会话，子代理、分叉与文件均保留；运行中的会话拒绝删除（409）
 - **API 仅信任本机请求**（127.0.0.1 / localhost / ::1）；仅使用官方公开 API
+
+> **关于门禁与版本**：DSH 的插件兼容门禁要求 peer 范围满足
+> `semver.satisfies(runtime, range, { includePrerelease: true })`，而**caret 范围跨不过 minor**——
+> `^0.1.7-rc.2` 展开为 `>=0.1.7-rc.2 <0.2.0-0`，对 `0.2.0-rc.1` 判定为 false，
+> 后果是插件被**静默跳过**（`skippedBundles`，不崩但功能全无）。
+> 故本版本声明为 `^0.1.7-rc.2 || ^0.2.0-rc.1`：同时支持两条线，且不自动放行 `0.3.x`
+> （届时需再显式放宽）。
 
 > **关于 rc.2 的破坏性变更**：本版本跟随 0.1.7-rc.2 重构了四处核心交互——
 > `sessionPersistence` 的 `inspect/readRaw/remove/artifactInfo` → `open/stat/list`；
@@ -119,7 +127,36 @@ mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-archived-sessi
 > cordis 4 的 `inject` 变为访问门禁（未声明即抛错）。
 > 因此 **0.2.0 不兼容 `0.1.7-rc.1` 及更早的核心**——门禁会直接拒绝加载。
 
+> **0.2.0-rc.1 的核对与两条已知隐患**：见
+> [`docs/compat-0.2.0-research.md`](docs/compat-0.2.0-research.md)。
+> 结论：0.2.0-rc.1 对本插件是**纯增量**（无值导出被删除），故无运行时兼容分支；
+> 两条隐患（agent 注册表残留 / 删盘依赖自算布局）经查证属**上游固有语义**，
+> 前者仅为内存残留、后者在定位失败时显式报 404，均**不建议修**（文档内有详细行号证据）。
+
 ### 更新日志
+
+#### 0.2.1
+
+- **适配：DSH `0.2.0-rc.1`（peer 范围放宽）**——0.2.0-rc.1 的启动预检按
+  `semver.satisfies(宿主版本, peer范围, {includePrerelease:true})` 判定 profile 行，
+  caret 范围跨不过 minor（`^0.1.7-rc.2` → `>=0.1.7-rc.2 <0.2.0-0`），故旧范围对
+  `0.2.0-rc.1` 判 false，插件被静默跳过（不崩，只是整包不装配）。
+  9 个 `@deepseek-ai/dsh-*` peer + 1 个 optionalPeer 全部改为
+  `^0.1.7-rc.2 || ^0.2.0-rc.1`，同时保留 0.1.7 线支持、不自动放行 `0.3.x`。
+  已逐项核对 0.2.0-rc.1 的 API：服务全部存在，本插件调用的
+  `list/stat/open/locate` 均在（`sessionPersistence` 的实现在
+  `dsh-session-persistence-jsonl`），对已移除的
+  `readRaw/remove/artifactInfo/coordinator` 早有守卫 —— **无运行时兼容分支**。
+  详见 [`docs/compat-0.2.0-research.md`](docs/compat-0.2.0-research.md)
+- **修复：当前会话可被误删（0.1.7-rc.2 起的静默失效）**——sessions store 自
+  0.1.7-rc.2 起**已无 `current` 字段**（0.2.0-rc.1 亦然：初始化只有
+  `{ids, byId, phase, …}`），而本插件仍在读 `s?.current` ⇒ 恒 `undefined`。
+  后果：`rows.filter((row) => !row.current)` 不再排除当前会话，用户可勾选并删除
+  **正在打开的（空闲）会话**（host 仅在 `agent.status === "running"` 时 409）；
+  同时「当前会话」徽标、置顶排序、行禁用全部失效。
+  现改用官方同款判据 `retainedBy.mainView`（`dsh-client-ui-workspace:105`、
+  `dsh-client-ui-layout:60`、`dsh-client-ui-cordis:741` 均如此）
+- **清理**：删除 `baselinesReady` 死变量（整个核心 asar 里 0 命中，除赋值外无使用）
 
 #### 0.2.0
 
@@ -204,7 +241,7 @@ MIT — © 2026 Zephyr-vibe（上游）· © 2026 OctoberaYours（本 fork）
 
 > **This is an independently maintained fork.**
 > The upstream [Zephyr-vibe/dsh-archived-sessions](https://github.com/Zephyr-vibe/dsh-archived-sessions) has not been updated since 2026-08-21; its `v0.1.5` targets DSH core `0.1.0-rc.8`.
-> This repository ([OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)) evolves independently from `0.2.0`, aiming to **track the current DSH core** — currently **DSH `0.1.7-rc.2`**.
+> This repository ([OctoberaYours/dsh-archived-sessions](https://github.com/OctoberaYours/dsh-archived-sessions)) evolves independently from `0.2.0`, aiming to **track the current DSH core** — currently **DSH `0.1.7-rc.2` and `0.2.0-rc.1`**.
 > The divergence from upstream is concentrated in core-API migration: the `sessionPersistence` contract rewrite, removal of the `decodeStorageRecord` export, the changed live-Session event accessor, and the cordis `inject` access gate. See the [changelog](#changelog).
 
 A DSH web plugin: a **Session Manager** in Settings — manage every conversation on this machine in one place.
@@ -300,11 +337,19 @@ After installing, restart DSH — the Session Manager appears in Settings automa
 
 ### Compatibility
 
-- **DSH core `0.1.7-rc.2`** (`peerDependencies` declare `^0.1.7-rc.2`, enforced by DSH's plugin compatibility gate)
+- **DSH core `0.1.7-rc.2` and `0.2.0-rc.1`** (`peerDependencies` declare
+  `^0.1.7-rc.2 || ^0.2.0-rc.1`, enforced by DSH's plugin compatibility gate)
 - **Zero config**: session directories are auto-detected from the official DSH layout (`$DSH_HOME/sessions/<project-key>/<session-id>/`) — no core patches
 - **Archive / unarchive**: built on the same `registry` state primitives as the official `archiveSession`
 - **Non-cascading delete**: only the selected session is removed; subagents, forks and files are kept; running sessions are rejected (409)
 - **Loopback-only API** (127.0.0.1 / localhost / ::1); official public APIs only
+
+> **On the gate and version ranges**: DSH's plugin compatibility gate requires the peer range to satisfy
+> `semver.satisfies(runtime, range, { includePrerelease: true })`, and **a caret never spans a minor bump** —
+> `^0.1.7-rc.2` expands to `>=0.1.7-rc.2 <0.2.0-0`, which is false for `0.2.0-rc.1`.
+> The consequence is a **silently skipped** plugin (`skippedBundles` — no crash, but the whole bundle stays unmounted).
+> This release therefore declares `^0.1.7-rc.2 || ^0.2.0-rc.1`: both lines are supported, and `0.3.x`
+> is *not* auto-admitted (it needs an explicit widening when that day comes).
 
 > **On the rc.2 breaking changes**: this release tracks four core interactions rewritten in 0.1.7-rc.2 —
 > `sessionPersistence`'s `inspect/readRaw/remove/artifactInfo` → `open/stat/list`;
@@ -313,7 +358,37 @@ After installing, restart DSH — the Session Manager appears in Settings automa
 > and cordis 4's `inject` becoming an access gate (undeclared access throws).
 > Consequently **0.2.0 is incompatible with core `0.1.7-rc.1` and earlier** — the gate rejects them outright.
 
+> **Audit of 0.2.0-rc.1, and two known hazards**: see
+> [`docs/compat-0.2.0-research.md`](docs/compat-0.2.0-research.md).
+> Verdict: 0.2.0-rc.1 is a **purely additive** change for this plugin (no value export was removed),
+> hence no runtime compatibility branch. Both hazards (a lingering agent registry entry / on-disk
+> deletion relying on a re-derived layout) turned out to be **upstream-fixed semantics** — the former
+> is memory-only, the latter reports an explicit 404 on lookup failure — so **neither should be patched**
+> (the document carries the line-level evidence).
+
 ### Changelog
+
+#### 0.2.1
+
+- **Adaptation: DSH `0.2.0-rc.1` (widened peer range)** — the startup precheck evaluates every profile row with
+  `semver.satisfies(hostVersion, peerRange, {includePrerelease:true})`; a caret never spans a minor bump
+  (`^0.1.7-rc.2` → `>=0.1.7-rc.2 <0.2.0-0`), so the old range was false against `0.2.0-rc.1` and the plugin was
+  silently skipped (no crash — the bundle simply never mounted). All 9 `@deepseek-ai/dsh-*` peers plus one
+  optional peer now declare `^0.1.7-rc.2 || ^0.2.0-rc.1`, keeping the 0.1.7 line working while *not*
+  auto-admitting `0.3.x`. Every API this plugin consumes was checked item by item: all services exist,
+  `list/stat/open/locate` are present (`sessionPersistence`'s implementation lives in
+  `dsh-session-persistence-jsonl`), and the removed `readRaw/remove/artifactInfo/coordinator` were already
+  guarded — **no runtime compatibility branch was needed**.
+  Details in [`docs/compat-0.2.0-research.md`](docs/compat-0.2.0-research.md)
+- **Fix: the current session could be deleted (silent failure since 0.1.7-rc.2)** — the sessions store has had
+  **no `current` field** since 0.1.7-rc.2 (nor in 0.2.0-rc.1: the initial state is just
+  `{ids, byId, phase, …}`), yet this plugin still read `s?.current` — always `undefined`.
+  Consequence: `rows.filter((row) => !row.current)` no longer excluded the current session, so a user could
+  select and delete an **open (idle) session** (the host only 409s while `agent.status === "running"`);
+  the "current session" badge, its pin-to-top ordering and row disabling all broke as well.
+  It now uses the official predicate `retainedBy.mainView` (same as `dsh-client-ui-workspace:105`,
+  `dsh-client-ui-layout:60` and `dsh-client-ui-cordis:741`)
+- **Cleanup**: removed the dead `baselinesReady` variable (zero hits across the entire core asar; assigned but never used)
 
 #### 0.2.0
 
