@@ -1,7 +1,24 @@
-# archived-sessions 在 DSH 0.2.0-rc.1 上的两条隐患 —— 修法研究
+# archived-sessions 在 DSH 0.2.0-rc.1 上的三条隐患 —— 修法研究
 
-> 研究时间：2026-09-29。基于 asar 内代码逐行核对（已解包到 `%TEMP%\dsh-asar`）。
-> 结论分两类：**可修** 与 **上游固有、本插件不应越界**。
+> 研究时间：2026-09-29；**2026-09-30 重大更正**（见下方「更正记录」）。
+> 基于 asar 内代码逐行核对（已解包到 `%TEMP%\dsh-asar`）。
+
+## ⚠️ 更正记录（2026-09-30）
+
+**本文档初版对隐患 1 的结论是错的，已推翻。**
+
+| | 初版结论 | 实际 |
+|---|---|---|
+| 性质 | 「内存残留，重启即清」 | **持久化事实，重启不清** |
+| 危害 | 「无错误行为」 | **留下永久无法打开的死行**（点进去报 `subagent/not-found`） |
+| 处置 | 「不建议修」 | **不可行 —— 需上游提供原语** |
+
+错误原因：初版只查到 `AgentRegistry` 没有删除 API，就推断「无害」。**漏查了 UI 列表的实际
+数据源**。用户实测复现后重新追查，才发现真正的机制在 `subagent/catalog`（见下方
+「隐患 3」）。教训：判断「无害」前必须确认**数据从哪里来**，不能只看写入侧。
+
+隐患 1 本身的结论（不使用 `agents.store` + `detachEntered`）**仍然成立**，理由不变；
+但它**不是**用户看到那个 bug 的原因。
 
 ---
 
@@ -131,6 +148,91 @@ const location = persistence !== void 0 && typeof persistence.locate === "functi
 
 **不修**。没有官方删除原语可用，重算是唯一选择；且上游改布局是小概率事件，
 真发生了插件会以 404 暴露（而非静默错删）。可以做的是**加一条注释**指向这个风险。
+
+---
+
+## 隐患 3（2026-09-30 新增）：删除子代理后，父会话的 `subagent/catalog` 记录成为悬空死行
+
+**这是用户实际遇到的 bug**（初版本文档误判为隐患 1 的表现，实为独立机制）。
+
+### 症状
+
+父会话的 subagent 下拉里仍列出已删除的子代理；点进去报：
+
+```
+历史加载失败：subagent is unavailable (subagent/not-found)
+```
+
+**重启不消失**（用户已实测）。
+
+### 根因（逐行核对）
+
+**① catalog 是父会话的持久化事实，由 `dsh-subagent` 写入**
+
+`dsh-subagent/lib/index.js:1537` `establishCatalogChild(parent, child, descriptor)` 调用
+`parent.append("subagent/catalog", {...})`。实测父日志中的原文：
+
+```json
+{"type":"subagent/catalog","seq":55604,"time":1790678824323,
+ "data":{"version":0,"childId":"23a66885-096e-4ea2-83e5-b8930106a924",
+         "childCreatedAt":1790678824293,"mode":"continuable",
+         "label":"Inspect production door target path"}}
+```
+
+**② UI 列表读的是父会话的投影，不是磁盘扫描**
+
+`dsh-subagent/lib/index.js:2072-2083` `listChildren`：
+
+```js
+const entries = await query.observeSession(parentSessionId, {...})
+                      .projections?.values.subagentCatalog;
+```
+
+⇒ 子会话在不在磁盘，**与列表无关**。这解释了「为什么重启也不消失」。
+
+**③ 点进去时校验磁盘 → 抛错**
+
+`dsh-api-session-controller/lib/index.js:1566-1587` `sourceFor` 用 `sessionQuery.observeSession(childId)`；
+查不到时（`:1585`）走 `rejectNotFound(address)`；`:1645-1651`：
+
+```js
+function rejectNotFound(address) {
+    if (address.kind === "session") throw new RemoteError("session/not-found", ...);
+    throw new RemoteError("subagent/not-found", "subagent is unavailable", {
+        parentSessionId: address.parentSessionId,
+        childSessionId: address.childSessionId
+    });
+}
+```
+
+### 为什么无法从插件侧修复
+
+三条路全部堵死，均已核对源码：
+
+| 方案 | 结论 | 证据 |
+|---|---|---|
+| **追加 tombstone 事件** | ❌ schema 拒绝 | `dsh-subagent/lib/types/catalog.js:26-30` 是 `.strict()` 联合，只有 `one-shot`/`continuable`/`unknown` 三种 mode；`apply`（`:78-82`）只会 `appendChunkedList`。加 `deleted:true` 会被 `eventDataSchema.parse` 抛错 |
+| **surface replace 改写** | ❌ 类型不允许 | `dsh-session/lib/types/surface.js:13-19` `SURFACE_EVENT_TYPES` 只有 5 种消息类型，**不含** `subagent/catalog`；`isSurfaceEligibleType` 返回 false |
+| **改写父会话日志文件** | ⚠️ 技术可行但**极危险** | 需重排 `seq`、重算分块存储、重写 zstd 帧；父会话是本机 53.87 MB / 61214 行的**活跃**会话，出错即毁历史 |
+
+**上游也没有对应原语**：`dsh-subagent` 服务面（`typert.host.js:160-222`）只有
+`listChildren` / `listDescendants`（只读）、`prompt` / `interruptByParent`（只对 live 生效）、
+`drainContinuableChildren`（文档明确限定「resident activations」，不碰 catalog）。
+
+### 处置
+
+**上报上游**（报告见 `~/Code/dsh-debug-kit/2026-09-30-subagent-catalog-dangling/dsh-upstream-issue.md`）。
+理由：这是 DSH 核心的完整性缺口 —— `dsh-subagent` 写入不可撤销的 catalog 事实，
+却没有提供撤回原语，而 surface 机制也不覆盖该事件类型。第三方插件**没有能力也不应该**
+改写核心会话日志格式。
+
+**本插件侧不做改动。** 用户可见的两个死行会保留；唯一能消除它们的方式是销毁整个父会话
+（本机为 53 MB 活跃会话，代价不成比例）。
+
+### 本机实测数据（供报告引用）
+
+全库扫描 `$DSH_HOME/sessions`：**7** 个父会话含 catalog 投影，其中**2** 条悬空记录
+（正是 UI 里可见的那 2 行），每个 `childId` 一条、无重复。
 
 ---
 
