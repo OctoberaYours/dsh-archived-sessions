@@ -213,7 +213,49 @@ loadProfileDirectory('dsh', <desktop profile>, <asar anchor>)
 
 ---
 
-## 七、未验证 / 已知边界
+## 七、上线后发现的第二个问题：图标名不存在（已修）
+
+首次在真实 DSH 上验证时，**删除按钮（🗑）在，迁移按钮（⇄）却看不见**。
+
+### 根因
+
+迁移按钮最初写作：
+
+```js
+const IconMoveOutline16 = pickIcon("IconArrowRightOutline16", "IconArrowRightOutline");
+```
+
+而 `pickIcon` 的降级链是 `[legacy, modern, modern+"Regular", modern+"Medium"]`。
+实测枚举 primitives 包全部 **94 个基础图标名**，确认**根本没有任何 Arrow / Move /
+Direction 类图标** —— 四个候选全部落空，返回 `NullIcon`（`() => null`）。
+
+结果：**按钮的 `<button>` 元素被正常渲染，但内部图标是空白** —— 用户完全看不见入口。
+
+对照：删除按钮能显示，是因为它走第三个候选 `IconTrashOutlineRegular` 命中
+（primitives 的命名规律是 `Icon<Name>Outline` + 变体后缀 `Regular`/`Medium`/`Artwork`）。
+
+### 为什么这是"静默"故障
+
+`pickIcon` 的注释里写明它「绝不返回 undefined」，目的是避免
+`Minified React error #130`（Element type is invalid）导致整个 slot 条目崩溃。
+这个设计是对的 —— 但**代价是图标缺失时会静默变空白**。
+
+### 处置
+
+1. 改用 `IconRightUpOutline`（右上方箭头，语义贴合"移动到别处"），
+   按同一条降级链实测可解析为 `IconRightUpOutlineRegular`。
+2. **新增自检**：`pickIcon` 落空时把名字记进 `missingIcons`，
+   初始化后打印一次 `console.warn`，让这类问题在控制台可发现而不是静默空白。
+
+### 教训
+
+**"不崩溃"和"可见"是两件事。** 带降级兜底的 UI 代码，必须在真实环境里确认
+**最终渲染出的是什么**，不能只确认"没有报错"。这类静默降级用单测也很难覆盖
+（测试环境里 primitives 的图标集未必与真实宿主一致）。
+
+---
+
+## 八、未验证 / 已知边界
 
 - **未做真实迁移的落盘验证**。上述都是「真实数据 + 真实校验函数 + mock 宿主服务」，
   没有在运行的 DSH 上真的迁移一次并检查磁盘上的新会话目录。
