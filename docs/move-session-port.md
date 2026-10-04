@@ -255,7 +255,73 @@ Direction 类图标** —— 四个候选全部落空，返回 `NullIcon`（`() 
 
 ---
 
-## 八、未验证 / 已知边界
+## 八、上线后发现的第三个问题：工作区 id 字段名不对（已修）
+
+图标修好后按钮出现，但弹窗显示 **「没有其他工作区可作为迁移目标」** ——
+而该机器实际有 **5 个工作区**。
+
+### 根因
+
+工作区对象的 id 字段，**客户端与服务端不同名**：
+
+```js
+// 服务端 dsh-api-workspace-controller/lib/index.js —— 下发给客户端时改名
+function workspaceView(workspace) {
+    return { workspaceId: workspace.id, path: workspace.path, title: workspace.title, sessionIds: ... };
+}
+```
+
+```js
+// 客户端 ClientWorkspaceModel（同包 lib/client.js）
+items = [];                       // 每项形如 { workspaceId, path, title, sessionIds, … }
+```
+
+即客户端 store 里**只有 `workspaceId`，没有 `id`**。而迁移代码最初写的是：
+
+```js
+if (w === null || typeof w !== "object" || typeof w.id !== "string") return false;
+```
+
+`w.id` 恒为 `undefined` ⇒ **所有工作区都被过滤掉** ⇒ 列表永远为空。
+
+磁盘上也印证了这点：`~/.dsh/storages/workspace.json` 的 `tables.workspaces` 每项
+键为 `{path, title, sessionIds, createdAt, updatedAt}`，**没有 id**；
+id 单独放在 `global.workspaceIds` 数组里。
+
+> 注意：本插件**别处早已用对**（`key: ws.workspaceId`），只有新写的迁移代码写错了。
+> 说明这是抄错而非理解错 —— 我照搬的是服务端 `registry.list()` 返回的 `{ id, path, sessionIds }`
+> 形状，而客户端拿到的是改名后的 view。
+
+### 处置
+
+`workspaceKey(w)` 优先取 `workspaceId`，兜底 `id`（兼容服务端形状）。
+同时调整 `candidates` 的元素形状为 `{ raw, key }`，渲染处同步更新。
+
+### 实测（用该机真实 `workspace.json` 跑）
+
+```
+服务端下发 items: 5 个
+  d896cdf4-455…  SCP_RP_DEV          11 会话
+  d5fde11b-140…  Chemistry            4 会话
+  2333c96f-c9e…  StellarisServer      1 会话
+  54720bcd-254…  ScreenShare          3 会话
+  bff0f299-4db…  Standard Workplace  40 会话
+
+当前会话在 E:\SCP_RP_DEV
+  → 修复后：可选目标 4 个 ✓（正确排除当前所在的 SCP_RP_DEV）
+  → 旧代码：通过 0 个     ← 这就是「没有其他工作区」的直接原因
+```
+
+### 教训
+
+**跨进程边界的对象，字段名可能在边界处被改写。** 服务端 `{ id }` → 客户端 `{ workspaceId }`
+不是笔误，而是 `workspaceView()` 的显式转换。判断客户端字段名应当以
+**客户端侧的读取代码**为准（`dsh-client-ui-workspace` 用的就是 `workspace.workspaceId`），
+不能想当然沿用服务端的命名。
+
+---
+
+## 九、未验证 / 已知边界
 
 - **未做真实迁移的落盘验证**。上述都是「真实数据 + 真实校验函数 + mock 宿主服务」，
   没有在运行的 DSH 上真的迁移一次并检查磁盘上的新会话目录。
