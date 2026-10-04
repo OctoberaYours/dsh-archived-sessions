@@ -31,6 +31,7 @@
 - **子代理会话**嵌套显示在父会话下方（缩进 + 「子代理」徽标）；父会话被删除或缺失时自动浮出为顶层行
 - **删除父会话不会级联**：子代理、分叉、下载/产出文件均保留，除非你显式勾选它们——避免误删
 - 当前打开的会话显示「当前会话」徽标，且**不可删除**
+- **「迁移会话」入口**（会话头部，⇄ 箭头图标）：把当前会话**原样复制到另一个工作区**，完整保留对话日志、标题、Agent 预设与模型选择。对话框内可选目标工作区与源会话处理方式：**保留原会话**（默认）或**归档原会话**（真迁移）。仅**空闲**会话可迁移（运行中按钮置灰 + 宿主端二次校验）；目标区已有同名会话时副本标题自动追加 `[MS<n>]` 区分
 
 ### 截图
 
@@ -138,6 +139,18 @@ mklink /J "%USERPROFILE%\.dsh\profiles\<profile>\node_modules\dsh-archived-sessi
 > 文档内有详细行号证据。
 
 ### 更新日志
+
+#### 0.3.0
+
+- **新增：跨工作区「迁移会话」**——移植自 [hucj09/dsh-move-session](https://github.com/hucj09/dsh-move-session)
+  的核心能力，收进本插件既有的 `/archived/api` 通道（新增 `move` 方法），不新开 HTTP 路由。
+  会话头部新增 ⇄ 按钮 → 弹窗选目标工作区 + 源会话处理方式（保留/归档）→
+  宿主端 `agents.create` 全量日志复制 → `attachSession` 记账 → 按需归档源会话。
+  副本保留全部对话、标题、Agent 预设与模型选择（模型取自源日志最后一次
+  `request/header`，优于官方 fork 使用当前默认模型）；血缘经 `parentSession` 保留；
+  目标区同名时标题追加 `[MS<n>]`（重复迁移替换而非累积）。仅空闲会话可迁移。
+  实现前的兼容性核对与一处**自我更正**见
+  [`docs/move-session-port.md`](docs/move-session-port.md)。
 
 #### 0.2.1
 
@@ -266,6 +279,7 @@ A DSH web plugin: a **Session Manager** in Settings — manage every conversatio
 - **Subagent sessions** are shown nested under their parent conversation (indented, with a "subagent" badge); when the parent is deleted or missing they surface as top-level rows
 - **Deleting a parent session does NOT cascade**: subagent children, forks, and downloaded/produced files are kept unless you explicitly select them — nothing is lost accidentally
 - The currently open session shows a **Current** badge and **cannot be deleted**
+- **"Move session" entry** (session header, ⇄ arrow icon): copies the current session **as-is into another workspace**, preserving the full conversation log, title, agent preset, and model selection. The dialog lets you pick a target workspace and what happens to the original: **Keep the original** (default) or **Archive the original** (a true move). Only **idle** sessions can be moved (the button is disabled while running, and the host re-checks); a same-named session in the target gains an `[MS<n>]` suffix on the copy's title
 
 ### Screenshots
 
@@ -371,6 +385,20 @@ After installing, restart DSH — the Session Manager appears in Settings automa
 > (the document carries the line-level evidence).
 
 ### Changelog
+
+#### 0.3.0
+
+- **New: cross-workspace "Move session"** — ports the core capability of
+  [hucj09/dsh-move-session](https://github.com/hucj09/dsh-move-session) into this plugin's existing
+  `/archived/api` channel (a new `move` method); no separate HTTP route. A ⇄ button in the session header
+  opens a dialog to pick a target workspace and what happens to the original (keep / archive); the host then
+  copies the full log via `agents.create`, accounts the copy with `attachSession`, and archives the original
+  on request. The copy keeps the whole conversation, title, agent preset, and model selection (the model is
+  taken from the source log's last `request/header`, which beats the shipped fork's use of the current
+  default model); lineage is retained through `parentSession`; a same-named session in the target gains an
+  `[MS<n>]` suffix (re-moves replace rather than accumulate). Idle sessions only.
+  The pre-port compatibility review — including one **self-correction** — is written up in
+  [`docs/move-session-port.md`](docs/move-session-port.md).
 
 #### 0.2.1
 
